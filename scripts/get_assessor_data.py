@@ -38,6 +38,7 @@ asr['house_1'] = asr['PROPLOC'].str[0:4].str.lstrip('0')
 asr['house_2'] = asr['PROPLOC'].str[5:9].str.lstrip('0')
 
 asr['house_1'] = asr['house_1'].str.replace('\D', '')
+asr.loc[asr['house_1'] == '', 'house_1'] = -999
 asr['house_2'] = asr['house_2'].str.replace('\D', '')
 
 asr = asr[asr['house_2'] != '']
@@ -93,6 +94,6 @@ asr = asr.replace({'street_type': st_typ_dict})
 bldg_typ_dict = {'SRES': 1, 'GOVT': 2, 'IND': 3, 'COMM': 4,
                  'COMR': 5, 'COMO': 6, 'COMH': 7, 'MISC': 8, 'MRES': 9}
 
-asr['bldg_type'] = asr.replace({'Use Code': bldg_typ_dict})['use_code']
+asr['bldg_type'] = asr.replace({'use_code': bldg_typ_dict})['use_code']
 
 asr.to_csv('../data/assessor_2007-2018_clean.csv', index=False)
