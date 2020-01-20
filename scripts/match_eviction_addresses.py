@@ -4,73 +4,6 @@ from collections import OrderedDict
 import numpy as np
 
 
-def clean_assessor_data(asr):
-    asr = asr[asr['Property Location'] != '0000 0000                       0000']
-
-    asr['house_1'] = asr['Property Location'].str[0:4].str.lstrip('0')
-    asr['house_2'] = asr['Property Location'].str[5:9].str.lstrip('0')
-
-    asr['house_1'] = asr['house_1'].str.replace('\D', '')
-    asr['house_2'] = asr['house_2'].str.replace('\D', '')
-
-    asr = asr[asr['house_2'] != '']
-    asr = asr[~asr['Property Location'].str.contains('SITUS TO BE ASSIGNED')]
-
-    asr['street_name'] = asr['Property Location'].str[9:].str.strip().str.split(' ').str[:-1].str.join(' ').str.strip().str.lstrip('0')
-    asr['street_rest'] = asr['Property Location'].str[9:].str.strip().str.split(' ').str[-1].str.strip()
-
-    asr['street_type'] = None
-    asr['unit_num'] = None
-
-    asr.loc[asr['street_rest'].str.len().isin([6, 7]), 'street_type'] = asr.loc[
-        asr['street_rest'].str.len().isin([6, 7]), 'street_rest'].str[0:2]
-    asr.loc[asr['street_rest'].str.len().isin([6, 7]), 'unit_num'] = asr.loc[
-        asr['street_rest'].str.len().isin([6, 7]), 'street_rest'].str[2:]
-    asr.loc[asr['street_rest'].str.len().isin([4, 5]), 'unit_num'] = asr.loc[
-        asr['street_rest'].str.len().isin([4, 5]), 'street_rest']
-
-    asr.loc[asr['Property Location'].str.contains(
-        'NORTH POINT'), 'street_name'] = 'NORTH POINT'
-    asr.loc[asr['Property Location'].str.contains(
-        'NORTH POINT'), 'street_type'] = 'ST'
-
-    asr.loc[asr['street_name'].str.contains('\sAVE$|\sAVENUE$|\sSTREET$|\sST$'), 'street_type'] = asr.loc[
-        asr['street_name'].str.contains('\sAVE$|\sAVENUE$|\sSTREET$|\sST$'),
-        'street_name'].str.extract('(\sAVE$|\sAVENUE$|\sSTREET$|\sST$)', expand=False).str.strip().str[0:2]
-    asr.loc[asr['street_name'].str.contains('\sAVE$|\sAVENUE$|\sSTREET$|\sST$'), 'street_name'] = asr.loc[
-        asr['street_name'].str.contains('\sAVE$|\sAVENUE$|\sSTREET$|\sST$'), 'street_name'].str.split(
-            '\sAVE$|\sAVENUE$|\sSTREET$|\sST$').str[0]
-
-    asr.loc[asr['street_name'].str.contains(
-        '\sSTT$|\sSTIT$|\sSTITE$'), 'street_type'] = 'street'
-    asr.loc[asr['street_name'].str.contains('\sSTT$|\sSTIT$|\sSTITE$'), 'street_name'] = asr.loc[
-        asr['street_name'].str.contains('\sSTT$|\sSTIT$|\sSTITE$'), 'street_name'].str.split(
-            '\sSTT$|\sSTIT$|\sSTITE$').str[0].str.strip()
-
-    asr.loc[asr['street_name'].str.contains('\sNOR$'), 'street_type'] = 'BLVD'
-    asr.loc[asr['street_name'].str.contains('FARRELL'), 'street_name'] = 'OFARRELL'
-    asr.loc[asr['street_name'] == 'EDINBURG', 'street_name'] = 'EDINBURGH'
-    asr.loc[asr['street_name'] == 'EDINBURG', 'street_type'] = 'ST'
-    asr.loc[asr['Property Location'].str.contains('BROADWAY'), 'street_type'] = 'ST'
-    # asr.loc[asr['Property Location'].str.contains('CESAR CHAVEZ'), 'street_type'] = 'BLVD'
-    asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_2'].astype(str).str.len() == 4), 'house_2'] = \
-        asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_2'].astype(str).str.len() == 4), 'house_2'].str[0:3]
-    asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_1'].astype(str).str.len() == 4), 'house_1'] = \
-        asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_1'].astype(str).str.len() == 4), 'house_1'].str[0:3]
-
-    st_typ_dict = {'street': 'ST', 'AV': 'AVE', 'BL': 'BLVD', 'WY': 'WAY',
-                   'TE': 'TER', 'PK': 'PARK', 'HW': 'HWY', 'LANE': 'LN', 'AL': 'ALY',
-                   'CR': 'CIR', 'LA': 'LN', 'PZ': 'PLZ', 'TR': 'TER', 'RW': 'ROW', 'BV': 'BLVD',
-                   'WK': 'WALK'}
-    asr = asr.replace({'street_type': st_typ_dict})
-
-    bldg_typ_dict = {'SRES': 1, 'GOVT': 2, 'IND': 3, 'COMM': 4,
-                     'COMR': 5, 'COMO': 6, 'COMH': 7, 'MISC': 8, 'MRES': 9}
-
-    asr['bldg_type'] = asr.replace({'Use Code': bldg_typ_dict})['Use Code']
-    return asr
-
-
 def clean_eviction_data(ev):
 
     if 'index' not in ev.columns:
@@ -249,29 +182,6 @@ def add_asr_attrs(df, i, match):
     df.loc[df['index'] == i, 'match_year'] = match['asr_yr']
 
 
-def add_asr_attrs_og(df, i, match):
-    df.loc[df['index'] == i, 'bldg_type'] = match['RP1CLACDE'].values[0]
-    df.loc[df['index'] == i, 'num_units'] = match['UNITS'].values[0]
-    df.loc[df['index'] == i, 'year_built'] = match['YRBLT'].values[0]
-    df.loc[df['index'] == i, 'matched_house'] = match['house_2'].values[0]
-    df.loc[df['index'] == i, 'matched_street'] = \
-        match['street_name'].values[0]
-    df.loc[df['index'] == i, 'matched_street_type'] = \
-        match['street_type'].values[0]
-    df.loc[df['index'] == i, 'matched'] = True
-
-
-def add_asr_2_attrs(df, i, match):
-    df.loc[df['index'] == i, 'bldg_type'] = match['bldg_type']
-    df.loc[df['index'] == i, 'num_units'] = match['UNITS']
-    df.loc[df['index'] == i, 'year_built'] = match['YRBLT']
-    df.loc[df['index'] == i, 'matched_house'] = match['house_1']
-    df.loc[df['index'] == i, 'matched_street'] = match['street_name']
-    df.loc[df['index'] == i, 'matched_street_type'] = match['street_type']
-    df.loc[df['index'] == i, 'matched'] = True
-    df.loc[df['index'] == i, 'match_year'] = match['asr_yr']
-
-
 def exact_match(row, df, row_col, df_col):
 
     if row['street_type'] is None:
@@ -373,6 +283,7 @@ def fuzzy_match_df_btwn_row(df, row, df_col, ascending=True):
 
     return match
 
+
 valid_street_types = [
     'ST', 'AVE', 'CT', 'CIR', 'BLVD', 'WAY', 'DR', 'TER', 'HWY', 'HL',
     'PL', 'LN', 'RD', 'PARK','ALY', 'PLZ', 'ROW', 'WALK', 'SQ']
@@ -411,13 +322,13 @@ if __name__ == '__main__':
     #                                   MATCHING                                       #
     ####################################################################################
     # Order of operations:
-    # 1. Exact matching on main eviction address ("house_2") w/ Infutor and Assessor
+    # 1. Exact matching on main eviction address ("house_2") w/ Assessor
     #    - assessor "house_2" = eviction "house_2"
     #    - infutor "house_2" = eviction "house_2"
     #    - assesor "house_1" = eviction "house_2"
     # 2. Fuzzy matching on main eviction address ("house_2") w/ Assessor
     #    - eviction "house_2" between assessor "house_1" and "house_2"
-    # 3. Exact matching on secondary eviction address ("house_1") w/ Infutor and Assessor
+    # 3. Exact matching on secondary eviction address ("house_1") w/ Assessor
     #    - assessor "house_2" = eviction "house_1"
     #    - assessor "house_1" = eviction "house_1"
     #    - infutor "house_2" = eviction "house_1
@@ -426,13 +337,6 @@ if __name__ == '__main__':
     # 5. Fuzzy matching of Assessor addresses between eviction addresses
     #    - assessor "house_2" between eviction "house_1" and "house_2"
     #    - assessor "house_1" between eviction "house_1" and "house_2"
-    # 6. Fuzzy matching of main Infutor address between eviction addresses
-    #    - infutor "house_2" between eviction "house_1" and "house_2"
-    #    - infutor "house_1" between eviction "house_1" and "house_2"
-    # 7. Fuzzy matching on main eviction address ("house_2") w/ Infutor
-    #    - eviction "house_2" between infutor "house_1" and "house_2"
-    # 8. Fuzzy matching on secondary eviction address ("house_1") w/ Infutor
-    #    - eviction "house_1" between infutor "house_1" and "house_2"
     ####################################################################################
 
     if 'matched' not in ev.columns:
@@ -566,5 +470,5 @@ if __name__ == '__main__':
     ###########
     # SAVE IT #
     ###########
-    # ev.to_csv('ev_matched_2.csv', index=False)
-    # asr_grouped_by_yr.to_csv('asr_grouped_by_yr.csv', index=False)
+    ev.to_csv('ev_matched.csv', index=False)
+    asr_grouped_by_yr.to_csv('asr_grouped_by_yr.csv', index=False)
