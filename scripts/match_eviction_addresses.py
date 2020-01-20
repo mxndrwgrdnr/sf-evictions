@@ -116,6 +116,7 @@ def clean_eviction_data(ev):
     ev['address'] = ev['address'].str.replace('HARRISOIN', 'HARRISON')
     ev['address'] = ev['address'].str.replace('BOARDWAY', 'BROADWAY')
     ev['address'] = ev['address'].str.replace("檀蘝涛虧檀迦", "")
+    ev['address'] = ev['address'].str.replace("涛宕", "")
     ev['address'] = ev['address'].str.replace("'", "")
 
     ev.loc[ev['address'] == "20 FRANKLIN STREET", 'address'] = "1580-1598 MARKET ST"
@@ -229,40 +230,23 @@ def clean_eviction_data(ev):
     ev.loc[ev['street_name'] == 'EDINBURG', 'street_type'] = 'ST'
     ev.loc[pd.isnull(ev['year']), 'year'] = ev.loc[pd.isnull(ev['year']), 'date'].str[0:4].astype(int)
 
+    ev.loc[ev['house_1'] == '', 'house_1'] = -999
+    ev.loc[pd.isnull(ev['house_1']), 'house_1'] = -999
+    ev['house_1'] = ev['house_1'].astype(int)
+    ev['house_2'] = ev['house_2'].astype(int)
+
     return ev
-
-
-def add_inf_attrs(df, i, match):
-    df.loc[df['index'] == i, 'bldg_type'] = match['PROP_IND'].values[0]
-    df.loc[df['index'] == i, 'num_units'] = match['PROP_APTNBR'].values[0]
-    df.loc[df['index'] == i, 'year_built'] = match['PROP_YRBLD'].values[0]
-    df.loc[df['index'] == i, 'matched_house'] = match['house_2'].values[0]
-    df.loc[df['index'] == i, 'matched_street'] = match['street_name'].values[0]
-    df.loc[df['index'] == i, 'matched_street_type'] = \
-        match['street_type'].values[0]
-    df.loc[df['index'] == i, 'matched'] = True
-
-
-def add_inf_2_attrs(df, i, match):
-    df.loc[df['index'] == i, 'bldg_type'] = match['PROP_IND'].values[0]
-    df.loc[df['index'] == i, 'num_units'] = match['PROP_APTNBR'].values[0]
-    df.loc[df['index'] == i, 'year_built'] = match['PROP_YRBLD'].values[0]
-    df.loc[df['index'] == i, 'matched_house'] = match['house_1'].values[0]
-    df.loc[df['index'] == i, 'matched_street'] = match['STREET2'].values[0]
-    df.loc[df['index'] == i, 'matched_street_type'] = \
-        match['STRTYPE2'].values[0]
-    df.loc[df['index'] == i, 'matched'] = True
 
 
 def add_asr_attrs(df, i, match):
     df.loc[df['index'] == i, 'bldg_type'] = match['bldg_type']
-    df.loc[df['index'] == i, 'num_units'] = match['Number of Units']
+    df.loc[df['index'] == i, 'num_units'] = match['UNITS']
     df.loc[df['index'] == i, 'year_built'] = match['YRBLT']
     df.loc[df['index'] == i, 'matched_house'] = match['house_2']
     df.loc[df['index'] == i, 'matched_street'] = match['street_name']
     df.loc[df['index'] == i, 'matched_street_type'] = match['street_type']
     df.loc[df['index'] == i, 'matched'] = True
-    df.loc[df['index'] == i, 'match_year'] = match['Closed Roll Year']
+    df.loc[df['index'] == i, 'match_year'] = match['asr_yr']
 
 
 def add_asr_attrs_og(df, i, match):
@@ -279,13 +263,13 @@ def add_asr_attrs_og(df, i, match):
 
 def add_asr_2_attrs(df, i, match):
     df.loc[df['index'] == i, 'bldg_type'] = match['bldg_type']
-    df.loc[df['index'] == i, 'num_units'] = match['Number of Units']
+    df.loc[df['index'] == i, 'num_units'] = match['UNITS']
     df.loc[df['index'] == i, 'year_built'] = match['YRBLT']
     df.loc[df['index'] == i, 'matched_house'] = match['house_1']
     df.loc[df['index'] == i, 'matched_street'] = match['street_name']
     df.loc[df['index'] == i, 'matched_street_type'] = match['street_type']
     df.loc[df['index'] == i, 'matched'] = True
-    df.loc[df['index'] == i, 'match_year'] = match['Closed Roll Year']
+    df.loc[df['index'] == i, 'match_year'] = match['asr_yr']
 
 
 def exact_match(row, df, row_col, df_col):
@@ -293,17 +277,19 @@ def exact_match(row, df, row_col, df_col):
     if row['street_type'] is None:
         match = df[
             (df['street_name'] == row['street_name']) &
-            (df[df_col] == row[row_col])]
+            (df[df_col] == row[row_col]) &
+            (df[df_col] > 0)]  # can't match on -999 house nums
     else:
         match = df[
             (df['street_name'] == row['street_name']) &
             (df[df_col] == row[row_col]) &
+            (df[df_col] > 0) &  # can't match on -999 house nums
             ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
     
     if len(match) > 0:
         if len(match) > 1:
-            match['year_diff'] = np.abs(match['Closed Roll Year'] - row['year'])
-            match = match.sort_values(['year_diff', 'Closed Roll Year'])
+            match['year_diff'] = np.abs(match['asr_yr'] - row['year'])
+            match = match.sort_values(['year_diff', 'asr_yr'])
         match = match.iloc[0]
 
     return match
@@ -316,12 +302,12 @@ def fuzzy_match_row_btwn_df(row, df, row_col, ascending=True):
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df['house_2'] > row[row_col]) & (df['house_1'] < row[row_col])) &
-                (df['house_1'] != '')]
+                (df['house_1'] > 0)]
         else:
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df['house_2'] > row[row_col]) & (df['house_1'] < row[row_col])) &
-                (df['house_1'] != '') &
+                (df['house_1'] > 0) &
                 ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
 
     else:
@@ -329,12 +315,12 @@ def fuzzy_match_row_btwn_df(row, df, row_col, ascending=True):
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df['house_2'] < row[row_col]) & (df['house_1'] > row[row_col])) &
-                (df['house_1'] != '')]
+                (df['house_1'] > 0)]
         else:
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df['house_2'] < row[row_col]) & (df['house_1'] > row[row_col])) &
-                (df['house_1'] != '') &
+                (df['house_1'] > 0) &
                 ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
 
     # make sure match is on same side of the street
@@ -342,8 +328,8 @@ def fuzzy_match_row_btwn_df(row, df, row_col, ascending=True):
 
     if len(match) > 0:
         if len(match) > 1:
-            match['year_diff'] = np.abs(match['Closed Roll Year'] - row['year'])
-            match = match.sort_values(['year_diff', 'Closed Roll Year'])
+            match['year_diff'] = np.abs(match['asr_yr'] - row['year'])
+            match = match.sort_values(['year_diff', 'asr_yr'])
         match = match.iloc[0]
 
     return match
@@ -356,24 +342,24 @@ def fuzzy_match_df_btwn_row(df, row, df_col, ascending=True):
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df[df_col] > row['house_1']) & (df[df_col] < row['house_2'])) &
-                (row['house_1'] != '')]
+                (row['house_1'] > 0)]
         else:
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df[df_col] > row['house_1']) & (df[df_col] < row['house_2'])) &
-                (row['house_1'] != '') &
+                (row['house_1'] > 0) &
                 ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
     else:
         if row['street_type'] is None:
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df[df_col] < row['house_1']) & (df[df_col] > row['house_2'])) &
-                (row['house_1'] != '')]
+                (row['house_1'] > 0)]
         else:
             match = df[
                 (df['street_name'] == row['street_name']) &
                 ((df[df_col] < row['house_1']) & (df[df_col] > row['house_2'])) &
-                (row['house_1'] != '') &
+                (row['house_1'] > 0) &
                 ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
 
     # make sure match is on same side of the street
@@ -381,8 +367,8 @@ def fuzzy_match_df_btwn_row(df, row, df_col, ascending=True):
 
     if len(match) > 0:
         if len(match) > 1:
-            match['year_diff'] = np.abs(match['Closed Roll Year'] - row['year'])
-            match = match.sort_values(['year_diff', 'Closed Roll Year'])
+            match['year_diff'] = np.abs(match['asr_yr'] - row['year'])
+            match = match.sort_values(['year_diff', 'asr_yr'])
         match = match.iloc[0]
 
     return match
@@ -393,92 +379,30 @@ valid_street_types = [
 
 if __name__ == '__main__':
 
-    #################################
-    # LOAD AND PROCESS INFUTOR DATA #
-    #################################
-
-    # print('Loading Infutor data.')
-    # inf = pd.read_csv('bq-results-20200103-133422-6ftj59lyt5kp.csv',
-    #                   usecols=['RECTYPE', 'HOUSE', 'PREDIR', 'STREET', 'STRTYPE', 'POSTDIR', 'APTTYPE', 'APTNBR',
-    #                            'HOUSE2', 'PREDIR2', 'STREET2', 'STRTYPE2', 'POSTDIR2',
-    #                            'ZIP', 'PROP_IND', 'PROP_APTNBR', 'PROP_YRBLD'],
-    #                   low_memory=False)
-
-    # print('Cleaning Infutor data.')
-    # inf['HOUSE'] = inf['HOUSE'].str.replace('\D', '')
-    # inf['HOUSE2'] = inf['HOUSE'].str.replace('\D', '')
-
-    # inf.loc[inf.index.values == 187863, 'HOUSE'] = '1'
-    # inf.loc[inf.index.values == 101898, 'HOUSE'] = '2104'
-    # inf.loc[inf.index.values == 101898, 'STREET'] = 'BAYSHORE'
-    # inf.loc[inf.index.values == 158905, 'HOUSE'] = '163'
-    # inf.loc[inf.index.values == 158905, 'STREET'] = 'FAIR OAKS'
-
-    # inf.loc[(~pd.isnull(inf['STREET'])) & (inf['HOUSE'].str.contains('[A-Za-z][A-Za-z]')), 'STRTYPE'] = \
-    #     inf.loc[(~pd.isnull(inf['STREET'])) & (
-    #         inf['HOUSE'].str.contains('[A-Za-z][A-Za-z]')), 'STREET']
-
-    # inf.loc[(~pd.isnull(inf['STREET'])) & (inf['HOUSE'].str.contains('[A-Za-z][A-Za-z]')), 'STREET'] = \
-    #     inf.loc[(~pd.isnull(inf['STREET'])) & (inf['HOUSE'].str.contains(
-    #         '[A-Za-z][A-Za-z]')), 'HOUSE'].str.split('-').str[1]
-
-    # inf.loc[(~pd.isnull(inf['STREET'])) & (inf['HOUSE'].str.contains('[A-Za-z][A-Za-z]')), 'HOUSE'] = \
-    #     inf.loc[(~pd.isnull(inf['STREET'])) & (inf['HOUSE'].str.contains(
-    #         '[A-Za-z][A-Za-z]')), 'HOUSE'].str.split('-').str[0]
-
-    # inf = inf[(inf['PROP_IND'].isin(['10', '11', '21', '22']))]
-
-    # st_typ_dict = {'STREET': 'ST', 'AVENUE': 'AVE', 'HLS': 'HL'}
-    # inf = inf.replace({'STRTYPE': st_typ_dict})
-    # inf = inf.replace({'STRTYPE2': st_typ_dict})
-
-    # inf = inf[inf['HOUSE'] != '']
-
-    # inf['house_2'] = inf['HOUSE']
-    # inf['house_1'] = inf['HOUSE2']
-    # inf['street_name'] = inf['STREET']
-    # inf['street_type'] = inf['STRTYPE']
-
-    # inf.loc[(~pd.isnull(inf['street_name'])) & (
-    #     inf['street_name'].str.contains('BROADWAY')), 'street_type'] = 'ST'
-    # inf.loc[(~pd.isnull(inf['STREET2'])) & (
-    #     inf['STREET2'].str.contains('BROADWAY')), 'STRTYPE2'] = 'ST'
-    # inf.loc[(~pd.isnull(inf['street_name'])) & (
-    #     inf['street_name'].str.contains('FARRELL')), 'street_name'] = 'OFARRELL'
-
-    # inf_grouped = inf.groupby(['house_2', 'street_name', 'street_type']).aggregate(
-    #     {'PROP_IND': 'max', 'PROP_YRBLD': 'min', 'PROP_APTNBR': 'sum'}).reset_index()
-
-    # inf_grouped_12 = inf.groupby(['house_2', 'house_1', 'street_name', 'STREET2', 'street_type', 'STRTYPE2']).aggregate(
-    #     {'PROP_IND': 'max', 'PROP_YRBLD': 'min', 'PROP_APTNBR': 'sum'}).reset_index()
 
     ##################################
     # LOAD AND PROCESS ASSESSOR DATA #
     ##################################
     print('Loading SF assessor data.')
-    asr = pd.read_csv('Assessor_Historical_Secured_Property_Tax_Rolls.csv', low_memory=False)
+    asr = pd.read_csv('../data/assessor_2007-2018_clean.csv', low_memory=False)
 
-    print('Cleaning SF assessor data.')
-    asr = clean_assessor_data(asr)
-
-    asr_latest = pd.read_excel(
-        '2019.8.12__SF_ASR_Secured_Roll_Data_2017-2018_0.xlsx')
-
-    # Using year 2017-2018 year-built dates, THIS IS WRONG
-    asr = pd.merge(asr, asr_latest[['PROPLOC', 'YRBLT']],
-                   left_on='Property Location', right_on='PROPLOC', how='left')
-
-    asr_grouped_by_yr = asr.groupby(['Closed Roll Year', 'house_1', 'house_2', 'street_name', 'street_type']).aggregate(
-        {'YRBLT': 'min', 'bldg_type': 'max', 'Number of Units': 'sum'}).reset_index()
-    asr_grouped = asr[asr['Closed Roll Year'] == 2017].groupby(['house_1', 'house_2', 'street_name', 'street_type']).aggregate(
-        {'YRBLT': 'min', 'bldg_type': 'max', 'Number of Units': 'sum'}).reset_index()
+    print('Creating SF assessor data universe.')
+    asr_grouped_by_yr = asr.groupby(['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
+        total_units=('UNITS', 'sum'), diff_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
+        diff_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
+        diff_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
+        diff_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max')
+    ).reset_index()
+    
+    if 'index' not in asr_grouped_by_yr.columns:
+        asr_grouped_by_yr.reset_index(inplace=True)
 
     ##################################
     # LOAD AND PROCESS EVICTION DATA #
     ##################################
     print('Loading eviction data.')
-    # ev = pd.read_csv('all_sf_evictions_2017.csv', low_memory=False)
-    ev = pd.read_csv('ev_matched.csv', low_memory=False)
+    ev = pd.read_csv('../data/all_sf_evictions_2017.csv', low_memory=False)
+    # ev = pd.read_csv('ev_matched.csv', low_memory=False)
 
     print('Cleaning eviction data.')
     ev = clean_eviction_data(ev)
@@ -512,133 +436,132 @@ if __name__ == '__main__':
     ####################################################################################
 
     if 'matched' not in ev.columns:
-        ev['matched'] = False
-        ev['bldg_type'] = None
-        ev['num_units'] = None
-        ev['year_built'] = None
-        ev['matched_house'] = None
-        ev['matched_street'] = None
-        ev['matched_street_type'] = None
-        ev['match_year'] = None
-        too_many_matches = OrderedDict()
+        ev['asr_index'] = None
+
+    if 'ev_count' not in asr_grouped_by_yr.columns:
+        asr_grouped_by_yr['ev_count'] = 0
     total_ev = len(ev)
 
     #### 1. Exact matching on main eviction address ("house_2")
-    for i, row in tqdm(ev[~ev['matched']].iterrows(), total=len(ev[~ev['matched']])):
+    for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
 
         # w/ main assessor address
         match_asr = exact_match(row, asr_grouped_by_yr, 'house_2', 'house_2')
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
         # w/ secondary assessor address
         match_asr_2 = exact_match(row, asr_grouped_by_yr, 'house_2', 'house_1')
         if len(match_asr_2) > 0:
-            add_asr_attrs(ev, row['index'], match_asr_2)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr_2['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr_2['index'], 'ev_count'] += 1
             continue
 
     print('After running step 1, {0} unmatched addresses remain ({1}%).'.format(
-        len(ev[~ev['matched']]), np.round((len(ev[~ev['matched']]) / total_ev) * 100, 3)))
+        len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
     #### 2. Fuzzy matching on main eviction address ("house_2") w/ Assesor
-    for i, row in tqdm(ev[(~ev['matched'])].iterrows(), total=len(ev[~ev['matched']])):
+    for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
 
         # assessor addresses descending
         match_asr = fuzzy_match_row_btwn_df(row, asr_grouped_by_yr, 'house_2', ascending=False)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
         # assessor addresses ascending
         match_asr = fuzzy_match_row_btwn_df(row, asr_grouped_by_yr, 'house_2', ascending=True)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
     print('After running step 2, {0} unmatched addresses remain ({1}%).'.format(
-        len(ev[~ev['matched']]), np.round((len(ev[~ev['matched']]) / total_ev) * 100, 3)))
+        len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
     #### 3. Exact matching on secondary eviction address ("house_1")
-    for i, row in tqdm(ev[(~ev['matched'])].iterrows(), total=len(ev[~ev['matched']])):
+    for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
 
-        if row['house_1'] == '':
+        if row['house_1'] < 1:
             continue
 
         # w/ main assessor address
         match_asr = exact_match(row, asr_grouped_by_yr, 'house_1', 'house_2')
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
         # w/ secondary assessor address
         match_asr_2 = exact_match(row, asr_grouped_by_yr, 'house_1', 'house_1')
         if len(match_asr_2) > 0:
-            add_asr_attrs(ev, row['index'], match_asr_2)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr_2['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr_2['index'], 'ev_count'] += 1
             continue
-        
-        # # w/ main Infutor address        
-        # match_inf = exact_match(row, inf_grouped, 'house_1', 'house_2')
-        # if len(match_inf) > 0:
-        #     if len(match_inf) == 1:
-        #         add_inf_attrs(ev, row['index'], match_inf)
-        #         continue
-        #     else:
-        #         too_many_matches[row['index']] = 'inf'
 
     print('After running step 3, {0} unmatched addresses remain ({1}%).'.format(
-        len(ev[~ev['matched']]), np.round((len(ev[~ev['matched']]) / total_ev) * 100, 3)))
+        len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
     #### 4. Fuzzy matching on secondary eviction address ("house_1") w/ Assessor 
-    for i, row in tqdm(ev[(~ev['matched'])].iterrows(), total=len(ev[~ev['matched']])):
-        if len(row['house_1']) == 0:
+    for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
+        
+        if row['house_1'] < 1:
             continue
 
         match_asr = fuzzy_match_row_btwn_df(row, asr_grouped_by_yr, 'house_1', ascending=False)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
-        
+
         match_asr = fuzzy_match_row_btwn_df(row, asr_grouped_by_yr, 'house_1', ascending=True)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
     print('After running step 4, {0} unmatched addresses remain ({1}%).'.format(
-        len(ev[~ev['matched']]), np.round((len(ev[~ev['matched']]) / total_ev) * 100, 3)))
+        len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
     #### 5. Fuzzy matching of Assessor addresses between eviction addresses
-    for i, row in tqdm(ev[(~ev['matched'])].iterrows(), total=len(ev[~ev['matched']])):
+    for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
 
-        if len(row['house_1']) == 0:
+        if row['house_1'] < 1:
             continue
 
         # using main assesor address ("house_2")
         match_asr = fuzzy_match_df_btwn_row(asr_grouped_by_yr, row, 'house_2', ascending=True)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
         # using main assesor address ("house_2")
         match_asr = fuzzy_match_df_btwn_row(asr_grouped_by_yr, row, 'house_2', ascending=False)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
         
         # using secondary assesor address ("house_1")
         match_asr = fuzzy_match_df_btwn_row(asr_grouped_by_yr, row, 'house_1', ascending=True)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
         # using secondary assesor address ("house_1")
         match_asr = fuzzy_match_df_btwn_row(asr_grouped_by_yr, row, 'house_1', ascending=False)
         if len(match_asr) > 0:
-            add_asr_attrs(ev, row['index'], match_asr)
+            ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
+            asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
             continue
 
     print('After running step 5, {0} unmatched addresses remain ({1}%).'.format(
-        len(ev[~ev['matched']]), np.round((len(ev[~ev['matched']]) / total_ev) * 100, 3)))
+        len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
     ###########
     # SAVE IT #

@@ -23,7 +23,7 @@ for i, f in tqdm(enumerate(files), total=len(files)):
 
     tmp = pd.read_excel(f)
     tmp['asr_yr'] = years[i]
-    asr = pd.concat((asr, tmp))
+    asr = pd.concat((asr, tmp), sort=True)
 
 codes = pd.read_csv('../data/Reference__Assessor-Recorder_Property_Class_Codes.csv')
 code_dict = dict(zip(codes['Class Code'], codes['Use Code']))
@@ -84,6 +84,23 @@ asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_2'].astype(str).str.le
     asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_2'].astype(str).str.len() == 4), 'house_2'].str[0:3]
 asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_1'].astype(str).str.len() == 4), 'house_1'] = \
     asr.loc[(asr['street_name'] == 'FREDERICK') & (asr['house_1'].astype(str).str.len() == 4), 'house_1'].str[0:3]
+
+# a bunch of street names have an erroneous letter "V" appended to the beginning
+asr.loc[(~pd.isnull(asr['street_name'])) & (asr['street_name'].str.contains('^V[^AEIOU]')), 'street_name'] = \
+    asr.loc[(~pd.isnull(asr['street_name'])) & (asr['street_name'].str.contains('^V[^AEIOU]')), 'street_name'].str[1:]
+other_weird_vnames = [
+    'VELSIE', 'VUNDERWOOD', 'VEDGEHILL', 'VEGBERT', 'VOAKDALE', 'VANDOVER',
+    'VINGERSON', 'VERVINE', 'VEDDY', 'VEVANS', 'VUNION', 'VALEMANY',
+    'VARMSTRONG', 'VELMIRA', 'VIRVING', 'VOCEAN', 'VESMERALDA', 'VELLSWORTH',
+    'VORIZABA', 'VALABAMA', 'VARGUELLO', 'VATHENS', 'VOAK', 'VELLIS',
+    'VORTEGA', 'VALBERTA', 'VUPPER', 'VINGALLS', 'VELIZABETH', 'VARBOR',
+    'VINDIANA', 'VUNIVERSITY', 'VEUCALYPTUS', 'VAPOLLO', 'VULLOA', 'VALADDIN',
+    'VEATON', 'VEDGEWOOD', 'VERIE', 'VAQUAVISTA', 'VALTA', 'VALTON', 'VOTSEGO',
+    'VORD', 'VAPTOS', 'VEXETER', 'VOCTAVIA', 'VURBANO', 'VAGNON', 'VOGDEN',
+    'VASHTON', 'VAUSTIN', 'VASHBURY', 'VABBEY', 'VALDER', 'VARKANSAS',
+    'VOAK GROVE', 'VARCH', 'VEDGAR', 'VILLINOIS', 'VARLETA']
+asr.loc[asr['street_name'].isin(other_weird_vnames), 'street_name'] = \
+    asr.loc[asr['street_name'].isin(other_weird_vnames), 'street_name'].str[1:]
 
 st_typ_dict = {'street': 'ST', 'AV': 'AVE', 'BL': 'BLVD', 'WY': 'WAY',
                'TE': 'TER', 'PK': 'PARK', 'HW': 'HWY', 'LANE': 'LN', 'AL': 'ALY',
