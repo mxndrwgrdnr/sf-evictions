@@ -1,7 +1,9 @@
 import pandas as pd
+import geopandas as gpd
 from tqdm import tqdm
 from collections import OrderedDict
 import numpy as np
+from shapely import wkt
 
 
 def clean_eviction_data(ev):
@@ -23,9 +25,6 @@ def clean_eviction_data(ev):
         ev['address'].str.contains('#'), 'address'].str.split('\s#').str[1]
     ev.loc[ev['address'].str.contains('#'), 'address'] = ev.loc[
         ev['address'].str.contains('#'), 'address'].str.split('\s#').str[0]
-
-    ev.loc[ev['address'].str.contains('VULCAN'), 'street_type'] = 'SW'
-    ev.loc[ev['address'].str.contains('VULCAN'), 'street_name'] = 'VULCAN'
 
     ev['address'] = ev['address'].str.replace(
         '|'.join(['STRETT', 'STRRET', 'STREET31', 'SREET', 'DTREET', 'STREEET']), 'ST')
@@ -72,6 +71,10 @@ def clean_eviction_data(ev):
     ev.loc[ev['address'] == "3410 22ND STREET", 'address'] = "994-998 GUERRERO ST"
     ev.loc[ev['address'] == "1312 UTAH STREET", 'address'] = "2601-2611 24TH ST"
     ev.loc[ev['address'] == "1290 HAYES STREET", 'address'] = "600-604 DIVISADERO ST"
+    ev.loc[ev['address'] == "130 COSO AVE", 'address'] = "1 LUNDY'S LN"
+    ev.loc[ev['address'] == '3444 16TH STREET', 'address'] = "3440 16TH ST"
+    ev.loc[ev['address'] == '603 NATOMA STREET', 'address'] = "170 7TH ST"
+
 
     ev.loc[ev['address'].str.contains('[0-9]02ND'), 'address'] = ev.loc[
         ev['address'].str.contains('[0-9]02ND'), 'address'].str.replace('02ND', ' 2ND')
@@ -161,6 +164,12 @@ def clean_eviction_data(ev):
     ev.loc[(ev['street_name'] == 'GEARY') & (ev['house_2'] == '990'), 'house_2'] = '9900'
     ev.loc[ev['street_name'] == 'EDINBURG', 'street_name'] = 'EDINBURGH'
     ev.loc[ev['street_name'] == 'EDINBURG', 'street_type'] = 'ST'
+    ev.loc[ev['address'].str.contains('VULCAN'), 'street_type'] = 'SW'
+    ev.loc[ev['address'].str.contains('VULCAN'), 'street_name'] = 'VULCAN'
+    ev.loc[ev['address'].str.contains('CLINTON PARK'), 'street_name'] = 'CLINTON PARK'
+    ev.loc[ev['address'].str.contains('CLINTON PARK'), 'street_type'] = None
+    ev.loc[ev['address'].str.contains('.*SO.*VAN NESS.*'), 'street_name'] = 'SOUTH VAN NESS'
+
     ev.loc[pd.isnull(ev['year']), 'year'] = ev.loc[pd.isnull(ev['year']), 'date'].str[0:4].astype(int)
 
     ev.loc[ev['house_1'] == '', 'house_1'] = -999
@@ -195,7 +204,7 @@ def exact_match(row, df, row_col, df_col):
             (df[df_col] == row[row_col]) &
             (df[df_col] > 0) &  # can't match on -999 house nums
             ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
-    
+
     if len(match) > 0:
         if len(match) > 1:
             match['year_diff'] = np.abs(match['asr_yr'] - row['year'])
@@ -284,69 +293,27 @@ def fuzzy_match_df_btwn_row(df, row, df_col, ascending=True):
     return match
 
 
-valid_street_types = [
-    'ST', 'AVE', 'CT', 'CIR', 'BLVD', 'WAY', 'DR', 'TER', 'HWY', 'HL',
-    'PL', 'LN', 'RD', 'PARK','ALY', 'PLZ', 'ROW', 'WALK', 'SQ']
+def match_sequence(ev, asr_grouped_by_yr):
+    """
+    Order of operations:
+    1. Exact matching on main eviction address ("house_2") w/ Assessor
+       - assessor "house_2" = eviction "house_2"
+       - infutor "house_2" = eviction "house_2"
+       - assesor "house_1" = eviction "house_2"
+    2. Fuzzy matching on main eviction address ("house_2") w/ Assessor
+       - eviction "house_2" between assessor "house_1" and "house_2"
+    3. Exact matching on secondary eviction address ("house_1") w/ Assessor
+       - assessor "house_2" = eviction "house_1"
+       - assessor "house_1" = eviction "house_1"
+       - infutor "house_2" = eviction "house_1
+    4. Fuzzy matching on secondary eviction address ("house_1") w/ Assessor
+       - eviction "house_1" between assessor "house_1" and "house_2"
+    5. Fuzzy matching of Assessor addresses between eviction addresses
+       - assessor "house_2" between eviction "house_1" and "house_2"
+       - assessor "house_1" between eviction "house_1" and "house_2"
+    """
 
-if __name__ == '__main__':
-
-
-    ##################################
-    # LOAD AND PROCESS ASSESSOR DATA #
-    ##################################
-    print('Loading SF assessor data.')
-    asr = pd.read_csv('../data/assessor_2007-2018_clean.csv', low_memory=False)
-
-    print('Creating SF assessor data universe.')
-    asr_grouped_by_yr = asr.groupby(['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
-        total_units=('UNITS', 'sum'), diff_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
-        diff_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
-        diff_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
-        diff_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max')
-    ).reset_index()
-    
-    if 'index' not in asr_grouped_by_yr.columns:
-        asr_grouped_by_yr.reset_index(inplace=True)
-
-    ##################################
-    # LOAD AND PROCESS EVICTION DATA #
-    ##################################
-    print('Loading eviction data.')
-    ev = pd.read_csv('../data/all_sf_evictions_2017.csv', low_memory=False)
-    # ev = pd.read_csv('ev_matched.csv', low_memory=False)
-
-    print('Cleaning eviction data.')
-    ev = clean_eviction_data(ev)
-
-    ####################################################################################
-    #                                   MATCHING                                       #
-    ####################################################################################
-    # Order of operations:
-    # 1. Exact matching on main eviction address ("house_2") w/ Assessor
-    #    - assessor "house_2" = eviction "house_2"
-    #    - infutor "house_2" = eviction "house_2"
-    #    - assesor "house_1" = eviction "house_2"
-    # 2. Fuzzy matching on main eviction address ("house_2") w/ Assessor
-    #    - eviction "house_2" between assessor "house_1" and "house_2"
-    # 3. Exact matching on secondary eviction address ("house_1") w/ Assessor
-    #    - assessor "house_2" = eviction "house_1"
-    #    - assessor "house_1" = eviction "house_1"
-    #    - infutor "house_2" = eviction "house_1
-    # 4. Fuzzy matching on secondary eviction address ("house_1") w/ Assessor
-    #    - eviction "house_1" between assessor "house_1" and "house_2"
-    # 5. Fuzzy matching of Assessor addresses between eviction addresses
-    #    - assessor "house_2" between eviction "house_1" and "house_2"
-    #    - assessor "house_1" between eviction "house_1" and "house_2"
-    ####################################################################################
-
-    if 'matched' not in ev.columns:
-        ev['asr_index'] = None
-
-    if 'ev_count' not in asr_grouped_by_yr.columns:
-        asr_grouped_by_yr['ev_count'] = 0
-    total_ev = len(ev)
-
-    #### 1. Exact matching on main eviction address ("house_2")
+    ### 1. Exact matching on main eviction address ("house_2")
     for i, row in tqdm(ev[pd.isnull(ev['asr_index'])].iterrows(), total=len(ev[pd.isnull(ev['asr_index'])])):
 
         # w/ main assessor address
@@ -354,6 +321,8 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
         # w/ secondary assessor address
@@ -361,6 +330,8 @@ if __name__ == '__main__':
         if len(match_asr_2) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr_2['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr_2['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr_2['index'], 'ev_count_post_07'] += 1
             continue
 
     print('After running step 1, {0} unmatched addresses remain ({1}%).'.format(
@@ -374,6 +345,9 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
+
             continue
 
         # assessor addresses ascending
@@ -381,6 +355,9 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
+
             continue
 
     print('After running step 2, {0} unmatched addresses remain ({1}%).'.format(
@@ -397,6 +374,8 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
         # w/ secondary assessor address
@@ -404,6 +383,8 @@ if __name__ == '__main__':
         if len(match_asr_2) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr_2['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr_2['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
     print('After running step 3, {0} unmatched addresses remain ({1}%).'.format(
@@ -419,12 +400,16 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
         match_asr = fuzzy_match_row_btwn_df(row, asr_grouped_by_yr, 'house_1', ascending=True)
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
     print('After running step 4, {0} unmatched addresses remain ({1}%).'.format(
@@ -441,6 +426,8 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
         # using main assesor address ("house_2")
@@ -448,6 +435,8 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
         
         # using secondary assesor address ("house_1")
@@ -455,6 +444,8 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
         # using secondary assesor address ("house_1")
@@ -462,13 +453,193 @@ if __name__ == '__main__':
         if len(match_asr) > 0:
             ev.loc[ev['index'] == row['index'], 'asr_index'] = match_asr['index']
             asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count'] += 1
+            if row['year'] > 2006:
+                asr_grouped_by_yr.loc[asr_grouped_by_yr['index'] == match_asr['index'], 'ev_count_post_07'] += 1
             continue
 
     print('After running step 5, {0} unmatched addresses remain ({1}%).'.format(
         len(ev[pd.isnull(ev['asr_index'])]), np.round((len(ev[pd.isnull(ev['asr_index'])]) / total_ev) * 100, 3)))
 
-    ###########
-    # SAVE IT #
-    ###########
-    ev.to_csv('ev_matched.csv', index=False)
-    asr_grouped_by_yr.to_csv('asr_grouped_by_yr.csv', index=False)
+    return ev
+
+
+def get_asr_addrs(ev, asr, addr_parcels):
+
+    for i, row in tqdm(addr_parcels.iterrows(), total=len(addr_parcels)):
+
+        ev_row = ev[ev['index'] == row['index']]
+        match = asr[asr['RP1PRCLID'].str.replace(" ", "").isin(row['Parcel Number'])]
+        match = match.drop_duplicates(['house_1', 'house_2', 'street_name', 'street_type'])
+
+        if len(match) > 1:
+
+            # if all matches have the same parcel id, then the duplicates are simply
+            # the same parcel from different assessor roll years and we retain the 
+            # address associated with the roll year closest to the eviction year
+            if len(match['RP1PRCLID'].unique()) == 1:
+                match = asr[asr['RP1PRCLID'] == match['RP1PRCLID'].values[0]]
+                match['year_diff'] = np.abs(match['asr_yr'] - ev_row['year'])
+                match = match.sort_values(['year_diff', 'asr_yr'])
+                match = match.head(1)
+
+            # exact match on street name
+            elif len(match[match['street_name'] == ev_row['street_name'].values[0]]) > 0:
+                match = match[match['street_name'] == ev_row['street_name'].values[0]]
+
+                if len(match) > 1:
+
+                    # exact match on house_2
+                    if len(match[match['house_2'] == ev_row['house_2'].values[0]]) > 0:
+                        match = match[match['house_2'] == ev_row['house_2'].values[0]]
+
+                        if len(match) > 1:
+
+                            # if all rows have the same year built and rent control
+                            # eligibility, then it doesn't matter which address we
+                            # assign it to.
+                            if (len((match['YRBLT'] < 1980).unique()) == 1) & (len(match['rc_eligible'].unique()) == 1):
+                                match = match.sample(1)
+
+                    elif len(match[match['house_2'].astype(str) == str(ev_row['house_2'].values[0]) + '0']) > 0:
+                        match = match[match['house_2'].astype(str) == str(ev_row['house_2'].values[0]) + '0']
+
+                    elif len(match) == 2:
+                        match = match.sort_values('house_2')
+                        if str(match.iloc[0]['house_2']) + '0' == str(match.iloc[1]['house_2']):
+                            match = match.head(1)
+
+            elif (len((match['YRBLT'] < 1980).unique()) == 1) & (len(match['rc_eligible'].unique()) == 1):
+                if (len(match['street_name'].unique()) == 1) & (len(match['house_2'].unique()) == 1):
+                    match = match.sample(1)
+                elif len(match) == 2:
+                    match = match.sort_values('house_2')
+                    if str(match.iloc[0]['house_2']) + '0' == str(match.iloc[1]['house_2']):
+                        match = match.head(1)
+
+        if len(match) < 1:
+            continue
+        elif len(match) > 1:
+            print('There must be an exception you havent considered yet in matching assessor addresses')
+            break
+        else:
+            # update the addresses so that they'll match on the next pass through
+            ev.loc[ev['index'] == row['index'], 'house_2'] = match['house_2'].astype(int).values[0]
+            ev.loc[ev['index'] == row['index'], 'house_1'] = match['house_1'].astype(int).values[0]
+            ev.loc[ev['index'] == row['index'], 'street_name'] = match['street_name'].values[0]
+            ev.loc[ev['index'] == row['index'], 'street_type'] = match['street_type'].values[0]
+
+    return ev
+
+valid_street_types = [
+    'ST', 'AVE', 'CT', 'CIR', 'BLVD', 'WAY', 'DR', 'TER', 'HWY', 'HL',
+    'PL', 'LN', 'RD', 'PARK', 'ALY', 'PLZ', 'ROW', 'WALK', 'SQ', 'SW']
+
+if __name__ == '__main__':
+
+
+    ##################################
+    # LOAD AND PROCESS ASSESSOR DATA #
+    ##################################
+    print('Loading SF assessor data.')
+    asr = pd.read_csv('../data/assessor_2007-2018_clean_w_none_sttyps.csv', low_memory=False)
+
+    print('Creating SF assessor data universe.')
+    asr_grouped_by_yr = asr.groupby(['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
+        total_units=('UNITS', 'sum'), diff_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
+        diff_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
+        diff_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
+        diff_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max')
+    ).reset_index()
+
+    if 'index' not in asr_grouped_by_yr.columns:
+        asr_grouped_by_yr.reset_index(inplace=True)
+
+    ##################################
+    # LOAD AND PROCESS EVICTION DATA #
+    ##################################
+    print('Loading eviction data.')
+    ev = pd.read_csv('../data/all_sf_evictions_2017.csv', low_memory=False)
+    # ev = pd.read_csv('../data/ev_matched.csv', low_memory=False)
+
+    print('Cleaning eviction data.')
+    ev = clean_eviction_data(ev)
+
+    if 'asr_index' not in ev.columns:
+        ev['asr_index'] = None
+
+    if 'ev_count' not in asr_grouped_by_yr.columns:
+        asr_grouped_by_yr['ev_count_post_07'] = 0
+        asr_grouped_by_yr['ev_count'] = 0
+    total_ev = len(ev)
+
+    ev = match_sequence(ev, asr_grouped_by_yr)
+
+    addrs = pd.read_csv('../data/Addresses_with_Units_-_Enterprise_Addressing_System.csv')
+    merged = pd.merge(
+        ev[pd.isnull(ev['asr_index'])],
+        addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
+        left_on=['house_2', 'street_name', 'street_type'],
+        right_on=['Address Number', 'Street Name', 'Street Type'])
+    addr_parcels = merged.groupby('index')['Parcel Number'].apply(
+        lambda x: list([z for z in x if type(z) == str])).reset_index()
+
+    ev = get_asr_addrs(ev, asr, addr_parcels)
+    ev = match_sequence(ev, asr_grouped_by_yr)
+
+    merged = pd.merge(
+        ev[pd.isnull(ev['asr_index'])],
+        addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
+        left_on=['house_2', 'street_name', 'street_type'],
+        right_on=['Address Number', 'Street Name', 'Street Type'])
+    merged = merged.drop_duplicates(['index', 'point'])
+
+    merged['point'] = merged['point'].apply(wkt.loads)
+    merged = gpd.GeoDataFrame(merged, geometry='point')
+    parcels = gpd.read_file(
+        '/Users/max/Documents/cal/2020_01_spring/evictions/data/Parcels   Active and Retired/'
+        'geo_export_0ee67a28-1bbf-45e3-bcfe-b7d8f6c8355e.shp')
+    merged.crs = parcels.crs
+    merged = gpd.sjoin(merged, parcels[[
+        'blklot', 'block_num', 'from_addre', 'to_address', 'street_nam', 'street_typ', 'geometry']], op='intersects')
+
+    for i in tqdm(merged['index'].unique(), total=len(merged['index'].unique())):
+
+        matches = merged[(~pd.isnull(merged['to_address'])) & (merged['index'] == i)]
+
+        if len(matches) == 0:
+            continue
+
+        if len(matches) == 1:
+            match = matches
+        else:
+            matches = asr[
+                (asr['street_name'].isin(matches['street_nam'])) & 
+                ((asr['street_type'].isin(matches['street_typ'])) | (pd.isnull(asr['street_type']))) &
+                ((asr['house_1'].astype(str).isin(
+                                    list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))) | 
+                                (asr['house_2'].astype(str).isin(
+                                    list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))))]
+            matches = matches.drop_duplicates(['house_1', 'house_2', 'street_name', 'street_type'])
+            if len(matches == 1):
+                match = matches
+            elif len(matches) == 0:
+                print("No matches...that's weird")
+                break
+            else:
+                print('Too many matches')
+                break
+
+        ev.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
+        ev.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
+        ev.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
+        ev.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
+
+    ev = match_sequence(ev, asr_grouped_by_yr)
+
+
+
+    # ###########
+    # # SAVE IT #
+    # ###########
+    ev.to_csv('../data/ev_matched_w_none_sttyps.csv', index=False)
+    asr_grouped_by_yr.to_csv('../data/asr_grouped_by_yr_w_none_sttyps.csv', index=False)
