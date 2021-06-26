@@ -1,8 +1,19 @@
+#######################################################
+# script to compile and standardize raw assessor data #
+#######################################################
+
+
 import pandas as pd
 from tqdm import tqdm
+from geopy.geocoders import Nominatim
+from geopy.extra.rate_limiter import RateLimiter
+import numpy as np
+import geopandas as gpd
+from matplotlib import pyplot as plt
 
+# only use 10 years of history
 files = [
-    '../data/2019.8.12__SF_ASR_Secured_Roll_Data_2017-2018_0.xlsx',
+    # '../data/2019.8.12__SF_ASR_Secured_Roll_Data_2017-2018_0.xlsx',
     '../data/2019.8.12__SF_ASR_Secured_Roll_Data_2016-2017_0.xlsx',
     '../data/2019.8.12__SF_ASR_Secured_Roll_Data_2015-2016_0.xlsx',
     '../data/2019.8.20__SF_ASR_Secured_Roll_Data_2014-2015.xlsx',
@@ -15,19 +26,21 @@ files = [
     '../data/2019.8.20__SF_ASR_Secured_Roll_Data_2007-2008.xlsx',
 ]
 
-years = [2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010, 2009, 2008, 2007]
+years = [
+    # 2017,
+    2016, 2015, 2014, 2013, 2012, 2011, 2010, 2009, 2008, 2007]
 
 asr = pd.DataFrame()
 
 for i, f in tqdm(enumerate(files), total=len(files)):
 
-    tmp = pd.read_excel(f)
+    tmp = pd.read_excel(f, engine='openpyxl')
     tmp['asr_yr'] = years[i]
     asr = pd.concat((asr, tmp), sort=True)
 
 codes = pd.read_csv('../data/Reference__Assessor-Recorder_Property_Class_Codes.csv')
 code_dict = dict(zip(codes['Class Code'], codes['Use Code']))
-rc_dict = dict(zip(codes['Class Code'], codes['rc_eligible']))
+rc_dict = dict(zip(codes['Class Code'], codes['rc_eligible']))  
 
 asr['use_code'] = asr['RP1CLACDE'].map(code_dict)
 asr['rc_eligible'] = asr['RP1CLACDE'].map(rc_dict)
@@ -162,4 +175,6 @@ bldg_typ_dict = {'SRES': 1, 'GOVT': 2, 'IND': 3, 'COMM': 4,
 
 asr['bldg_type'] = asr.replace({'use_code': bldg_typ_dict})['use_code']
 
-asr.to_csv('../data/assessor_2007-2018_clean_w_none_sttyps.csv', index=False)
+#
+
+asr.to_csv('../data/assessor_2007-2016.csv', index=False)

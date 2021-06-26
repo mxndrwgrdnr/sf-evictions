@@ -41,8 +41,8 @@ def fix_esri_geoms(geom_col):
 
 
 geog_file = 'Assessor_Historical_Secured_Property_Tax_Rolls.csv'
-asr_file = 'assessor_2007-2018_clean_w_none_sttyps.csv'
-out_file = 'asr_w_fips.csv'
+asr_file = 'assessor_2007-2016.csv'
+out_file = 'assessor_2007-2016_fips.csv'
 data_dir = '../data/'
 
 if __name__ == '__main__':
@@ -55,6 +55,8 @@ if __name__ == '__main__':
     cur_rows = len(asr)
     asr['Parcel Number'] = asr['RP1PRCLID'].str.replace(' ', '')
     asr = asr[~pd.isnull(asr['street_name'])]
+
+    # dropped 844 rows!
     if len(asr) < cur_rows:
         print('Dropped {0} rows with null street names.'.format(
             cur_rows - len(asr)))

@@ -1,7 +1,13 @@
+#############################################################################
+# script to match eviction data against assessor data. generates file of    #
+# matched evictions as well as assessor records grouped by address and year #
+#############################################################################
+
+
 import pandas as pd
-import geopandas as gpd
+# import geopandas as gpd
 from tqdm import tqdm
-from collections import OrderedDict
+# from collections import OrderedDict
 import numpy as np
 from shapely import wkt
 
@@ -11,8 +17,9 @@ def clean_eviction_data(ev):
     if 'index' not in ev.columns:
         ev.reset_index(inplace=True)
 
-    ev = ev[(~pd.isnull(ev['address'])) & (ev['address'] != 'UNKNOWN')
-            & (ev['address'].str.contains('^[0-9]'))]
+    ev = ev[(
+        ~pd.isnull(ev['address'])) & (ev['address'] != 'UNKNOWN') & (
+        ev['address'].str.contains('^[0-9]'))]
 
     ev.address = ev.address.str.upper()
 
@@ -541,38 +548,62 @@ if __name__ == '__main__':
     # LOAD AND PROCESS ASSESSOR DATA #
     ##################################
     print('Loading SF assessor data.')
-    asr = pd.read_csv('../data/assessor_2007-2018_clean_w_none_sttyps.csv', low_memory=False)
+    asr = pd.read_csv(
+        '../data/assessor_2007-2016_fips.csv',
+        dtype={'fipscd': str},
+        low_memory=False)
 
     print('Creating SF assessor data universe.')
     asr_grouped_by_yr = asr.groupby(['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
-        total_units=('UNITS', 'sum'), diff_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
-        diff_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
-        diff_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
-        diff_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max')
+        total_units=('UNITS', 'sum'), uniq_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
+        uniq_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
+        uniq_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
+        uniq_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max'),
+        uniq_fipscds=('GEOID', 'nunique'), fipscd=('GEOID', 'min'),
+        uniq_parcels=('RP1PRCLID', 'nunique'), parcel_id=('RP1PRCLID', 'first'),
+        uniq_nbds=('RP1NBRCDE', 'nunique'), nbd_code=('RP1NBRCDE', 'first')
     ).reset_index()
 
     if 'index' not in asr_grouped_by_yr.columns:
         asr_grouped_by_yr.reset_index(inplace=True)
 
     ##################################
-    # LOAD AND PROCESS EVICTION DATA #
+    # 1. LOAD AND PROCESS EVICTION DATA #
     ##################################
     print('Loading eviction data.')
+
+    # 47762 rows
     ev = pd.read_csv('../data/all_sf_evictions_2017.csv', low_memory=False)
-    # ev = pd.read_csv('../data/ev_matched.csv', low_memory=False)
+
+    # 21856 rows
+    ev = ev[(ev['year'] > 2006) & (ev['year'] < 2017)]
+    # # ev = pd.read_csv('../data/ev_matched.csv', low_memory=False)
 
     print('Cleaning eviction data.')
+
+    # 21852 rows
     ev = clean_eviction_data(ev)
 
+    # 21802 rows
     if 'asr_index' not in ev.columns:
         ev['asr_index'] = None
 
     if 'ev_count' not in asr_grouped_by_yr.columns:
         asr_grouped_by_yr['ev_count_post_07'] = 0
         asr_grouped_by_yr['ev_count'] = 0
-    total_ev = len(ev)
 
+    total_ev = len(ev)  # 21802
+
+    #########################
+    # 2. RUN MATCH SEQUENCE #
+    #########################
     ev = match_sequence(ev, asr_grouped_by_yr)
+    # 1666 ev unmatched
+
+
+    #####################################################
+    # 3. GET PARCEL ID FOR UNMATCHED EVICTION ADDRESSES #
+    ##################################################### 
 
     addrs = pd.read_csv('../data/Addresses_with_Units_-_Enterprise_Addressing_System.csv')
     merged = pd.merge(
@@ -583,11 +614,23 @@ if __name__ == '__main__':
     addr_parcels = merged.groupby('index')['Parcel Number'].apply(
         lambda x: list([z for z in x if type(z) == str])).reset_index()
 
-    ev = get_asr_addrs(ev, asr, addr_parcels)
-    ev = match_sequence(ev, asr_grouped_by_yr)
+    ############################################################
+    # 4. UPDATE EV ADDRS BY MATCHING EV PARCEL IDS TO ASR DATA #
+    ############################################################
+    ev2 = ev.copy()
+    ev2 = get_asr_addrs(ev2, asr, addr_parcels)
 
+    #############################################
+    # 5. RERUN MATCH SEQUENCE WITH NEW EV ADDRS #
+    #############################################
+    ev2 = match_sequence(ev2, asr_grouped_by_yr)
+    # 953 ev unmatched
+
+    ######################################################
+    # 5. GET POINT GEOM FOR UNMATCHED EVICTION ADDRESSES #
+    ######################################################
     merged = pd.merge(
-        ev[pd.isnull(ev['asr_index'])],
+        ev2[pd.isnull(ev2['asr_index'])],
         addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
         left_on=['house_2', 'street_name', 'street_type'],
         right_on=['Address Number', 'Street Name', 'Street Type'])
@@ -602,8 +645,11 @@ if __name__ == '__main__':
     merged = gpd.sjoin(merged, parcels[[
         'blklot', 'block_num', 'from_addre', 'to_address', 'street_nam', 'street_typ', 'geometry']], op='intersects')
 
+    #################################################################
+    # 4. UPDATE EV ADDRS BY MATCHING EV POINT GEOMS TO PARCEL GEOMS #
+    ################################################################# 
+    ev3 = ev2.copy()
     for i in tqdm(merged['index'].unique(), total=len(merged['index'].unique())):
-
         matches = merged[(~pd.isnull(merged['to_address'])) & (merged['index'] == i)]
 
         if len(matches) == 0:
@@ -629,17 +675,17 @@ if __name__ == '__main__':
                 print('Too many matches')
                 break
 
-        ev.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
-        ev.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
-        ev.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
-        ev.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
+        ev3.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
+        ev3.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
+        ev3.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
+        ev3.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
 
-    ev = match_sequence(ev, asr_grouped_by_yr)
+    ev3 = match_sequence(ev3, asr_grouped_by_yr)
 
-
-
-    # ###########
-    # # SAVE IT #
-    # ###########
-    ev.to_csv('../data/ev_matched_w_none_sttyps.csv', index=False)
-    asr_grouped_by_yr.to_csv('../data/asr_grouped_by_yr_w_none_sttyps.csv', index=False)
+    ###########
+    # SAVE IT #
+    ###########
+    ev.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev_matched_w_fips.csv', index=False)
+    ev2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev2_matched_w_fips.csv', index=False)
+    ev3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev3_matched_w_fips.csv', index=False)
+    asr_grouped_by_yr.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr_w_fips.csv', index=False)
