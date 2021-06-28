@@ -5,9 +5,8 @@
 
 
 import pandas as pd
-# import geopandas as gpd
+import geopandas as gpd
 from tqdm import tqdm
-# from collections import OrderedDict
 import numpy as np
 from shapely import wkt
 
@@ -199,6 +198,8 @@ def add_asr_attrs(df, i, match):
 
 
 def exact_match(row, df, row_col, df_col):
+
+    df = df.copy()
 
     if row['street_type'] is None:
         match = df[
@@ -567,9 +568,9 @@ if __name__ == '__main__':
     if 'index' not in asr_grouped_by_yr.columns:
         asr_grouped_by_yr.reset_index(inplace=True)
 
-    ##################################
+    #####################################
     # 1. LOAD AND PROCESS EVICTION DATA #
-    ##################################
+    #####################################
     print('Loading eviction data.')
 
     # 47762 rows
@@ -598,7 +599,9 @@ if __name__ == '__main__':
     # 2. RUN MATCH SEQUENCE #
     #########################
     ev = match_sequence(ev, asr_grouped_by_yr)
-    # 1666 ev unmatched
+    assert asr_grouped_by_yr['ev_count'].sum() == ev[ev['asr_index'].notnull()].shape[0]
+    breakpoint()
+    # 20136 matched, 1666 ev unmatched
 
 
     #####################################################
@@ -618,12 +621,15 @@ if __name__ == '__main__':
     # 4. UPDATE EV ADDRS BY MATCHING EV PARCEL IDS TO ASR DATA #
     ############################################################
     ev2 = ev.copy()
+    asr_grouped_by_yr2 = asr_grouped_by_yr.copy()
     ev2 = get_asr_addrs(ev2, asr, addr_parcels)
 
     #############################################
     # 5. RERUN MATCH SEQUENCE WITH NEW EV ADDRS #
     #############################################
-    ev2 = match_sequence(ev2, asr_grouped_by_yr)
+    ev2 = match_sequence(ev2, asr_grouped_by_yr2)
+    breakpoint()
+    assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
     # 953 ev unmatched
 
     ######################################################
@@ -646,15 +652,14 @@ if __name__ == '__main__':
         'blklot', 'block_num', 'from_addre', 'to_address', 'street_nam', 'street_typ', 'geometry']], op='intersects')
 
     #################################################################
-    # 4. UPDATE EV ADDRS BY MATCHING EV POINT GEOMS TO PARCEL GEOMS #
+    # 6. UPDATE EV ADDRS BY MATCHING EV POINT GEOMS TO PARCEL GEOMS #
     ################################################################# 
     ev3 = ev2.copy()
+    asr_grouped_by_yr3 = asr_grouped_by_yr2.copy()
     for i in tqdm(merged['index'].unique(), total=len(merged['index'].unique())):
         matches = merged[(~pd.isnull(merged['to_address'])) & (merged['index'] == i)]
-
         if len(matches) == 0:
             continue
-
         if len(matches) == 1:
             match = matches
         else:
@@ -674,13 +679,15 @@ if __name__ == '__main__':
             else:
                 print('Too many matches')
                 break
-
         ev3.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
         ev3.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
         ev3.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
         ev3.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
 
-    ev3 = match_sequence(ev3, asr_grouped_by_yr)
+    ev3 = match_sequence(ev3, asr_grouped_by_yr3)
+    breakpoint()
+    assert asr_grouped_by_yr3['ev_count'].sum() == ev3[ev3['asr_index'].notnull()].shape[0]
+    # 944 unmatched
 
     ###########
     # SAVE IT #
@@ -689,3 +696,5 @@ if __name__ == '__main__':
     ev2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev2_matched_w_fips.csv', index=False)
     ev3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev3_matched_w_fips.csv', index=False)
     asr_grouped_by_yr.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr_w_fips.csv', index=False)
+    asr_grouped_by_yr2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr2_w_fips.csv', index=False)
+    asr_grouped_by_yr3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr3_w_fips.csv', index=False)
