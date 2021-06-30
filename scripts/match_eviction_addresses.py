@@ -205,13 +205,13 @@ def exact_match(row, df, row_col, df_col):
         match = df[
             (df['street_name'] == row['street_name']) &
             (df[df_col] == row[row_col]) &
-            (df[df_col] > 0)]  # can't match on -999 house nums
+            (df[df_col] > 0)].copy()  # can't match on -999 house nums
     else:
         match = df[
             (df['street_name'] == row['street_name']) &
             (df[df_col] == row[row_col]) &
             (df[df_col] > 0) &  # can't match on -999 house nums
-            ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))]
+            ((df['street_type'] == row['street_type']) | (pd.isnull(df['street_type'])))].copy()
 
     if len(match) > 0:
         if len(match) > 1:
@@ -476,7 +476,7 @@ def get_asr_addrs(ev, asr, addr_parcels):
     for i, row in tqdm(addr_parcels.iterrows(), total=len(addr_parcels)):
 
         ev_row = ev[ev['index'] == row['index']]
-        match = asr[asr['RP1PRCLID'].str.replace(" ", "").isin(row['Parcel Number'])]
+        match = asr[asr['RP1PRCLID'].str.replace(" ", "").isin(row['Parcel Number'])].copy()
         match = match.drop_duplicates(['house_1', 'house_2', 'street_name', 'street_type'])
 
         if len(match) > 1:
@@ -550,42 +550,65 @@ if __name__ == '__main__':
     ##################################
     print('Loading SF assessor data.')
     asr = pd.read_csv(
-        '../data/assessor_2007-2016_fips.csv',
+        '../data/assessor_2007-2016_fips_jun_2021.csv',
         dtype={'fipscd': str},
         low_memory=False)
 
     print('Creating SF assessor data universe.')
-    asr_grouped_by_yr = asr.groupby(['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
-        total_units=('UNITS', 'sum'), uniq_unit_counts=('UNITS', 'nunique'), min_units=('UNITS', 'min'),
-        uniq_bldg_types=('bldg_type', 'nunique'), bldg_type_min=('bldg_type', 'min'), bldg_type_max=('bldg_type', 'max'),
-        uniq_rc_eligibility=('rc_eligible', 'nunique'), any_rc_eligibility=('rc_eligible', 'max'),
-        uniq_years_built=('YRBLT', 'nunique'), year_built_min=('YRBLT', 'min'), year_built_max=('YRBLT', 'max'),
-        uniq_fipscds=('GEOID', 'nunique'), fipscd=('GEOID', 'min'),
-        uniq_parcels=('RP1PRCLID', 'nunique'), parcel_id=('RP1PRCLID', 'first'),
-        uniq_nbds=('RP1NBRCDE', 'nunique'), nbd_code=('RP1NBRCDE', 'first')
+    asr['total_value'] = asr['RP1LNDVAL'] + asr['RP1IMPVAL']
+    asr.loc[pd.isnull(asr['RP1NBRCDE']), 'RP1NBRCDE'] = 'unknown'
+    asr_grouped_by_yr = asr.groupby(
+        ['asr_yr', 'house_1', 'house_2', 'street_name', 'street_type']).agg(
+        total_units=('UNITS', 'sum'),
+        uniq_unit_counts=('UNITS', 'nunique'),
+        min_units=('UNITS', 'min'),
+        uniq_bldg_types=('bldg_type', 'nunique'),
+        bldg_type_min=('bldg_type', 'min'),
+        bldg_type_max=('bldg_type', 'max'),
+        uniq_rc_eligibility=('rc_eligible', 'nunique'),
+        any_rc_eligibility=('rc_eligible', 'max'),
+        uniq_years_built=('YRBLT', 'nunique'),
+        year_built_min=('YRBLT', 'min'),
+        year_built_max=('YRBLT', 'max'),
+        uniq_fipscds=('GEOID', 'nunique'),
+        fipscd=('GEOID', 'min'),
+        uniq_parcels=('RP1PRCLID', 'nunique'),
+        parcel_id=('RP1PRCLID', 'first'),
+        uniq_nbds=('RP1NBRCDE', 'nunique'),
+        nbd_code=('RP1NBRCDE', pd.Series.mode),
+        total_value=('total_value', 'sum'),
+        # total_beds=('BEDS', 'sum'),
+        # total_baths=('BATHS', 'sum'),
+        # mean_stories=('STOREYNO', 'mean'),
+        total_sqft=('SQFT', 'sum'),
+        # total_rooms=('ROOMS', 'sum'),
+        # total_area=('LAREA', 'sum')
+        latitude=('latitude', 'first'),
+        longitude=('longitude', 'first')
     ).reset_index()
 
     if 'index' not in asr_grouped_by_yr.columns:
         asr_grouped_by_yr.reset_index(inplace=True)
 
+    # 1553397 unique assessor address-year records
+
     #####################################
     # 1. LOAD AND PROCESS EVICTION DATA #
     #####################################
-    print('Loading eviction data.')
-
-    # 47762 rows
+    print('Loading eviction data.')    
     ev = pd.read_csv('../data/all_sf_evictions_2017.csv', low_memory=False)
+    breakpoint()
+    # 47762 rows
 
-    # 21856 rows
     ev = ev[(ev['year'] > 2006) & (ev['year'] < 2017)]
-    # # ev = pd.read_csv('../data/ev_matched.csv', low_memory=False)
+    breakpoint()
+    # 21806 rows
 
     print('Cleaning eviction data.')
-
-    # 21852 rows
     ev = clean_eviction_data(ev)
-
+    breakpoint()
     # 21802 rows
+
     if 'asr_index' not in ev.columns:
         ev['asr_index'] = None
 
@@ -623,6 +646,8 @@ if __name__ == '__main__':
     ev2 = ev.copy()
     asr_grouped_by_yr2 = asr_grouped_by_yr.copy()
     ev2 = get_asr_addrs(ev2, asr, addr_parcels)
+    breakpoint()
+    assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
 
     #############################################
     # 5. RERUN MATCH SEQUENCE WITH NEW EV ADDRS #
@@ -695,6 +720,6 @@ if __name__ == '__main__':
     ev.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev_matched_w_fips.csv', index=False)
     ev2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev2_matched_w_fips.csv', index=False)
     ev3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev3_matched_w_fips.csv', index=False)
-    asr_grouped_by_yr.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr_w_fips.csv', index=False)
-    asr_grouped_by_yr2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr2_w_fips.csv', index=False)
-    asr_grouped_by_yr3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr3_w_fips.csv', index=False)
+    asr_grouped_by_yr.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr_w_geom.csv', index=False)
+    asr_grouped_by_yr2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr2_w_geom.csv', index=False)
+    asr_grouped_by_yr3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr3_w_geom.csv', index=False)
