@@ -1,3 +1,11 @@
+################################################################################################
+# NOTE: I started this code to get better matching results than matching by address,
+# but I never finished and thus this code hasn't actually been used yet.
+################################################################################################
+
+
+
+
 import pandas as pd
 import numpy as np
 import re
@@ -346,9 +354,22 @@ ev.loc[ev['addr_clean'].str[-6::].isin(
 ev = ev.drop(columns='blk_lot')
 
 foo = pd.merge(
-    ev[~pd.isnull(ev['addr_clean'])], pim[['addr_simple', 'blk_lot']],
+    ev[(~pd.isnull(ev['addr_clean'])) & (ev['street_type_exists'])],
+    pim[['addr_simple', 'blk_lot']],
     how='left',
     left_on='addr_clean', right_on='addr_simple')
+foo.rename(columns={'addr_simple': 'pim_addr'}, inplace=True)
+
+foo2 = pd.merge(
+    ev[(~pd.isnull(ev['addr_clean'])) & (~ev['street_type_exists'])],
+    pim[['addr_noty', 'blk_lot']],
+    how='left',
+    left_on='addr_clean', right_on='addr_noty')
+foo2.rename(columns={'addr_noty': 'pim_addr'}, inplace=True)
+
+all_foo = pd.concat((foo, foo2))
+
+unmatched = ev[ev['index'].isin(all_foo[pd.isnull(all_foo['blk_lot'])]['index'])]
 
 ev['addr_array'] = ev['addr_clean'].str.split(" ")
 ev['addr_num'] = ev['addr_array'].apply(
