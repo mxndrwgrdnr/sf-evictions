@@ -6,10 +6,10 @@ This paper presents causal evidence of a significant positive effect of rent con
 ![](fig_2.jpg){:height="75%" width="75%"}
 {: refdef}
 
-| ![](fig_1.jpg) |
-|:--:|
-| *Construction of Multi-Unit Residential Buildings by Year* |
+{:refdef: style="text-align: center;"}
+![](fig_1.jpg){:height="75%" width="75%"}
+{: refdef}
 
-| ![](fig_3.jpg) |
-|:--:|
-| *Spatial Distribution of Eviction Filings* |
+{:refdef: style="text-align: center;"}
+![](fig_3.jpg)
+{: refdef}
