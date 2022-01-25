@@ -1,1 +1,22 @@
 theme: minima
+
+title: Max Gardner
+description: Max Gardner's website
+github_username: mxndrwgrdnr
+
+# Email and twitter are optional:
+email: gardner.max@gmail.com
+twitter_username: mxndrwgrdnr
+
+titles_from_headings:
+  enabled:     false
+  strip_title: true
+  collections: true
+  
+markdown: kramdown
+kramdown:
+  math_engine: katex
+  input: GFM
+  auto_ids: true
+  hard_wrap: false
+  syntax_highlighter: rouge
