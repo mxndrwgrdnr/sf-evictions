@@ -9,10 +9,12 @@ This paper presents causal evidence of a significant positive effect of rent con
 
 {:refdef: style="text-align: center;"}
 ![](fig_1.jpg "New construction of Multi-Unit Residential Buildings in San Francisco"){:height="75%" width="75%"}
-{: refdef}
 *New construction of Multi-Unit Residential Buildings in San Francisco*
+{: refdef}
+
 
 {:refdef: style="text-align: center;"}
 ![](fig_3.jpg "Distribution of Eviction Filings in Multi-Unit Buildings (2007 to 2016)"){:height="75%" width="75%"}
-{: refdef}
 *Distribution of Eviction Filings in Multi-Unit Buildings (2007 to 2016)*
+{: refdef}
+
