@@ -3,12 +3,13 @@
 # matched evictions as well as assessor records grouped by address and year #
 #############################################################################
 
-
 import pandas as pd
 import geopandas as gpd
 from tqdm import tqdm
 import numpy as np
 from shapely import wkt
+
+BASIC_MATCHING_ONLY = True
 
 
 def clean_eviction_data(ev):
@@ -542,9 +543,10 @@ valid_street_types = [
     'ST', 'AVE', 'CT', 'CIR', 'BLVD', 'WAY', 'DR', 'TER', 'HWY', 'HL',
     'PL', 'LN', 'RD', 'PARK', 'ALY', 'PLZ', 'ROW', 'WALK', 'SQ', 'SW']
 
+
 if __name__ == '__main__':
 
-
+    breakpoint()
     ##################################
     # LOAD AND PROCESS ASSESSOR DATA #
     ##################################
@@ -626,100 +628,105 @@ if __name__ == '__main__':
     breakpoint()
     # 20136 matched, 1666 ev unmatched
 
+    if not BASIC_MATCHING_ONLY:
 
-    #####################################################
-    # 3. GET PARCEL ID FOR UNMATCHED EVICTION ADDRESSES #
-    ##################################################### 
+        #####################################################
+        # 3. GET PARCEL ID FOR UNMATCHED EVICTION ADDRESSES #
+        ##################################################### 
 
-    addrs = pd.read_csv('../data/Addresses_with_Units_-_Enterprise_Addressing_System.csv')
-    merged = pd.merge(
-        ev[pd.isnull(ev['asr_index'])],
-        addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
-        left_on=['house_2', 'street_name', 'street_type'],
-        right_on=['Address Number', 'Street Name', 'Street Type'])
-    addr_parcels = merged.groupby('index')['Parcel Number'].apply(
-        lambda x: list([z for z in x if type(z) == str])).reset_index()
+        addrs = pd.read_csv('../data/Addresses_with_Units_-_Enterprise_Addressing_System.csv')
+        merged = pd.merge(
+            ev[pd.isnull(ev['asr_index'])],
+            addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
+            left_on=['house_2', 'street_name', 'street_type'],
+            right_on=['Address Number', 'Street Name', 'Street Type'])
+        addr_parcels = merged.groupby('index')['Parcel Number'].apply(
+            lambda x: list([z for z in x if type(z) == str])).reset_index()
 
-    ############################################################
-    # 4. UPDATE EV ADDRS BY MATCHING EV PARCEL IDS TO ASR DATA #
-    ############################################################
-    ev2 = ev.copy()
-    asr_grouped_by_yr2 = asr_grouped_by_yr.copy()
-    ev2 = get_asr_addrs(ev2, asr, addr_parcels)
-    breakpoint()
-    assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
+        ############################################################
+        # 4. UPDATE EV ADDRS BY MATCHING EV PARCEL IDS TO ASR DATA #
+        ############################################################
+        ev2 = ev.copy()
+        asr_grouped_by_yr2 = asr_grouped_by_yr.copy()
+        ev2 = get_asr_addrs(ev2, asr, addr_parcels)
+        breakpoint()
+        assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
 
-    #############################################
-    # 5. RERUN MATCH SEQUENCE WITH NEW EV ADDRS #
-    #############################################
-    ev2 = match_sequence(ev2, asr_grouped_by_yr2)
-    breakpoint()
-    assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
-    # 953 ev unmatched
+        #############################################
+        # 5. RERUN MATCH SEQUENCE WITH NEW EV ADDRS #
+        #############################################
+        ev2 = match_sequence(ev2, asr_grouped_by_yr2)
+        breakpoint()
+        assert asr_grouped_by_yr2['ev_count'].sum() == ev2[ev2['asr_index'].notnull()].shape[0]
+        # 953 ev unmatched
 
-    ######################################################
-    # 5. GET POINT GEOM FOR UNMATCHED EVICTION ADDRESSES #
-    ######################################################
-    merged = pd.merge(
-        ev2[pd.isnull(ev2['asr_index'])],
-        addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
-        left_on=['house_2', 'street_name', 'street_type'],
-        right_on=['Address Number', 'Street Name', 'Street Type'])
-    merged = merged.drop_duplicates(['index', 'point'])
+        ######################################################
+        # 5. GET POINT GEOM FOR UNMATCHED EVICTION ADDRESSES #
+        ######################################################
+        merged = pd.merge(
+            ev2[pd.isnull(ev2['asr_index'])],
+            addrs[['Address Number', 'Street Name', 'Street Type', 'point', 'Parcel Number']],
+            left_on=['house_2', 'street_name', 'street_type'],
+            right_on=['Address Number', 'Street Name', 'Street Type'])
+        merged = merged.drop_duplicates(['index', 'point'])
 
-    merged['point'] = merged['point'].apply(wkt.loads)
-    merged = gpd.GeoDataFrame(merged, geometry='point')
-    parcels = gpd.read_file(
-        '/Users/max/Documents/cal/2020_01_spring/evictions/data/Parcels   Active and Retired/'
-        'geo_export_0ee67a28-1bbf-45e3-bcfe-b7d8f6c8355e.shp')
-    merged.crs = parcels.crs
-    merged = gpd.sjoin(merged, parcels[[
-        'blklot', 'block_num', 'from_addre', 'to_address', 'street_nam', 'street_typ', 'geometry']], op='intersects')
+        merged['point'] = merged['point'].apply(wkt.loads)
+        merged = gpd.GeoDataFrame(merged, geometry='point')
+        parcels = gpd.read_file(
+            '/Users/max/Documents/cal/2020_01_spring/evictions/data/Parcels   Active and Retired/'
+            'geo_export_0ee67a28-1bbf-45e3-bcfe-b7d8f6c8355e.shp')
+        merged.crs = parcels.crs
+        merged = gpd.sjoin(merged, parcels[[
+            'blklot', 'block_num', 'from_addre', 'to_address', 'street_nam', 'street_typ', 'geometry']], op='intersects')
 
-    #################################################################
-    # 6. UPDATE EV ADDRS BY MATCHING EV POINT GEOMS TO PARCEL GEOMS #
-    ################################################################# 
-    ev3 = ev2.copy()
-    asr_grouped_by_yr3 = asr_grouped_by_yr2.copy()
-    for i in tqdm(merged['index'].unique(), total=len(merged['index'].unique())):
-        matches = merged[(~pd.isnull(merged['to_address'])) & (merged['index'] == i)]
-        if len(matches) == 0:
-            continue
-        if len(matches) == 1:
-            match = matches
-        else:
-            matches = asr[
-                (asr['street_name'].isin(matches['street_nam'])) & 
-                ((asr['street_type'].isin(matches['street_typ'])) | (pd.isnull(asr['street_type']))) &
-                ((asr['house_1'].astype(str).isin(
-                                    list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))) | 
-                                (asr['house_2'].astype(str).isin(
-                                    list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))))]
-            matches = matches.drop_duplicates(['house_1', 'house_2', 'street_name', 'street_type'])
-            if len(matches == 1):
+        #################################################################
+        # 6. UPDATE EV ADDRS BY MATCHING EV POINT GEOMS TO PARCEL GEOMS #
+        ################################################################# 
+        ev3 = ev2.copy()
+        asr_grouped_by_yr3 = asr_grouped_by_yr2.copy()
+        for i in tqdm(merged['index'].unique(), total=len(merged['index'].unique())):
+            matches = merged[(~pd.isnull(merged['to_address'])) & (merged['index'] == i)]
+            if len(matches) == 0:
+                continue
+            if len(matches) == 1:
                 match = matches
-            elif len(matches) == 0:
-                print("No matches...that's weird")
-                break
             else:
-                print('Too many matches')
-                break
-        ev3.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
-        ev3.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
-        ev3.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
-        ev3.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
+                matches = asr[
+                    (asr['street_name'].isin(matches['street_nam'])) & 
+                    ((asr['street_type'].isin(matches['street_typ'])) | (pd.isnull(asr['street_type']))) &
+                    ((asr['house_1'].astype(str).isin(
+                                        list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))) | 
+                                    (asr['house_2'].astype(str).isin(
+                                        list(np.unique(np.concatenate((matches['from_addre'], matches['to_address'])))))))]
+                matches = matches.drop_duplicates(['house_1', 'house_2', 'street_name', 'street_type'])
+                if len(matches == 1):
+                    match = matches
+                elif len(matches) == 0:
+                    print("No matches...that's weird")
+                    break
+                else:
+                    print('Too many matches')
+                    break
+            ev3.loc[ev['index'] == i, 'house_1'] = match['house_1'].values[0]
+            ev3.loc[ev['index'] == i, 'house_2'] = match['house_2'].values[0]
+            ev3.loc[ev['index'] == i, 'street_name'] = match['street_name'].values[0]
+            ev3.loc[ev['index'] == i, 'street_type'] = match['street_type'].values[0]
 
-    ev3 = match_sequence(ev3, asr_grouped_by_yr3)
-    breakpoint()
-    assert asr_grouped_by_yr3['ev_count'].sum() == ev3[ev3['asr_index'].notnull()].shape[0]
-    # 944 unmatched
+        ev3 = match_sequence(ev3, asr_grouped_by_yr3)
+        breakpoint()
+        assert asr_grouped_by_yr3['ev_count'].sum() == ev3[ev3['asr_index'].notnull()].shape[0]
+        # 944 unmatched
 
     ###########
     # SAVE IT #
     ###########
-    ev.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev_matched_w_fips.csv', index=False)
-    ev2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev2_matched_w_fips.csv', index=False)
-    ev3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev3_matched_w_fips.csv', index=False)
-    asr_grouped_by_yr.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr_w_geom.csv', index=False)
-    asr_grouped_by_yr2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr2_w_geom.csv', index=False)
-    asr_grouped_by_yr3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr3_w_geom.csv', index=False)
+    ev.to_csv(
+        '~/Documents/cal/2022_01_spring/evic_paper/data/full_bldg_ev_matched_w_fips.csv', index=False)
+    asr_grouped_by_yr.to_csv(
+        '~/Documents/cal/2022_01_spring/evic_paper/data/full_bldg_asr_grouped_by_yr_w_geom.csv', index=False)
+
+    if not BASIC_MATCHING_ONLY:
+        ev2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev2_matched_w_fips.csv', index=False)
+        ev3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/ev3_matched_w_fips.csv', index=False)
+        asr_grouped_by_yr2.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr2_w_geom.csv', index=False)
+        asr_grouped_by_yr3.to_csv('~/Documents/cal/2021_02_summer/evic_paper/data/asr_grouped_by_yr3_w_geom.csv', index=False)
